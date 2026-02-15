@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RAG Chat</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/assets/style.css" />
+  </head>
+  <body data-theme="system">
+    <div class="app">
+      <aside class="sidebar">
+        <div class="sidebar-top">
+          <button id="new-chat-btn" class="side-btn primary">+ New chat</button>
+        </div>
+        <div class="sidebar-label">History</div>
+        <div class="search-wrap">
+          <input id="chat-search" type="text" placeholder="Поиск в чатах" />
+        </div>
+        <div id="chat-list" class="chat-list"></div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div class="brand">
+            <h1>RAG Assistant</h1>
+            <p>Knowledge-only answers with citations + diagrams</p>
+          </div>
+          <div class="topbar-actions">
+            <button id="share-chat-btn" class="text-btn" title="Поделиться чатом">Share</button>
+            <button id="open-settings-btn" class="icon-btn" title="Settings">⚙</button>
+          </div>
+        </header>
+
+        <section id="messages" class="messages"></section>
+
+        <footer class="composer-wrap">
+          <form id="ask-form" class="composer">
+            <input id="file-input" type="file" accept=".pdf,.docx,.xlsx" hidden />
+            <button type="button" id="attach-btn" class="icon-btn attach-btn" title="Upload file">
+              +
+            </button>
+            <textarea
+              id="ask-question"
+              rows="1"
+              placeholder="Сообщение для RAG Assistant..."
+              required
+            ></textarea>
+            <select id="response-mode" class="mode-select" title="Режим ответа">
+              <option value="brief">Кратко</option>
+              <option value="standard" selected>Стандарт</option>
+              <option value="deep">Глубоко</option>
+            </select>
+            <button type="submit" class="send-btn">Send</button>
+          </form>
+          <p id="composer-status" class="composer-status"></p>
+        </footer>
+      </main>
+    </div>
+
+    <dialog id="settings-modal" class="settings-modal">
+      <form id="settings-form" method="dialog" class="settings-form">
+        <h2>Настройки</h2>
+
+        <label>
+          Email
+          <input id="profile-email" type="text" readonly />
+        </label>
+
+        <label>
+          Display name
+          <input id="profile-display-name" type="text" />
+        </label>
+
+        <label>
+          Theme
+          <select id="theme-select">
+            <option value="system">System</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </label>
+
+        <label>
+          Default query type
+          <select id="default-type">
+            <option value="technical">technical</option>
+            <option value="sales">sales</option>
+          </select>
+        </label>
+
+        <label>
+          Default response mode
+          <select id="default-mode">
+            <option value="brief">Кратко</option>
+            <option value="standard">Стандарт</option>
+            <option value="deep">Глубоко</option>
+          </select>
+        </label>
+
+        <label>
+          Default version
+          <input id="default-version" type="text" value="v1" />
+        </label>
+
+        <label class="switch">
+          <input id="show-confidence" type="checkbox" checked />
+          <span>Show confidence + docs metadata</span>
+        </label>
+
+        <label class="switch">
+          <input id="enter-to-send" type="checkbox" checked />
+          <span>Enter to send, Shift+Enter newline</span>
+        </label>
+
+        <div class="settings-actions">
+          <button id="logout-btn" type="button" class="secondary-btn">Logout</button>
+          <button id="close-settings-btn" type="button" class="secondary-btn">Close</button>
+          <button type="submit" class="primary-btn">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="auth-modal" class="settings-modal auth-modal">
+      <div class="settings-form">
+        <h2>Вход в аккаунт</h2>
+        <div class="auth-tabs">
+          <button id="auth-tab-login" type="button" class="tab-btn active">Login</button>
+          <button id="auth-tab-register" type="button" class="tab-btn">Register</button>
+        </div>
+
+        <form id="auth-login-form" class="auth-form">
+          <label>
+            Email
+            <input id="login-email" type="email" required />
+          </label>
+          <label>
+            Password
+            <input id="login-password" type="password" required minlength="8" />
+          </label>
+          <button type="submit" class="primary-btn">Login</button>
+        </form>
+
+        <form id="auth-register-form" class="auth-form hidden">
+          <label>
+            Display name
+            <input id="register-display-name" type="text" />
+          </label>
+          <label>
+            Email
+            <input id="register-email" type="email" required />
+          </label>
+          <label>
+            Password
+            <input id="register-password" type="password" required minlength="8" />
+          </label>
+          <button type="submit" class="primary-btn">Create account</button>
+        </form>
+
+        <p id="auth-status" class="composer-status"></p>
+      </div>
+    </dialog>
+
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+    <script src="/assets/app.js"></script>
+  </body>
+</html>
