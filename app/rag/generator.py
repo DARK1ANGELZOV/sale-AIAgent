@@ -39,10 +39,15 @@ class RAGService:
         query_type: QueryType,
         version: str | None = None,
         mode: AnswerMode = AnswerMode.standard,
+        document_names: list[str] | None = None,
     ) -> AskResponse:
         """Return strict-RAG answer and validated citations."""
         started = time.perf_counter()
-        retrieval = await self._retriever.retrieve(question=question, version=version)
+        retrieval = await self._retriever.retrieve(
+            question=question,
+            version=version,
+            document_names=document_names,
+        )
 
         if not retrieval.hits:
             return self._build_refusal_response(started)

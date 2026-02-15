@@ -20,6 +20,7 @@ class VectorSearchClient(Protocol):
         query_vector: list[float],
         top_k: int,
         version: str | None = None,
+        document_names: list[str] | None = None,
     ) -> list[SearchHit]:
         """Return scored hits."""
 
@@ -56,8 +57,10 @@ class Retriever:
         self,
         question: str,
         version: str | None = None,
+        document_names: list[str] | None = None,
     ) -> RetrievalResult:
         """Return hits that pass configured relevance threshold."""
+        normalized_document_names = _normalize_document_names(document_names)
         try:
             vectors = await asyncio.to_thread(self._embedding_service.embed_texts, [question])
             query_vector = vectors[0]
@@ -65,13 +68,15 @@ class Retriever:
                 query_vector=query_vector,
                 top_k=self._candidate_k,
                 version=version,
+                document_names=normalized_document_names,
             )
-            if not hits and version:
+            if not hits and version and not normalized_document_names:
                 # Fallback when user selected an outdated/incorrect version.
                 hits = await self._qdrant_service.search(
                     query_vector=query_vector,
                     top_k=self._candidate_k,
                     version=None,
+                    document_names=normalized_document_names,
                 )
         except Exception as exc:  # noqa: BLE001
             raise RetrievalError("Retrieval pipeline failed") from exc
@@ -118,6 +123,23 @@ class Retriever:
 
 def _tokenize(text: str) -> set[str]:
     return tokenize_text(text)
+
+
+def _normalize_document_names(document_names: list[str] | None) -> list[str] | None:
+    if not document_names:
+        return None
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for name in document_names:
+        normalized = str(name).strip()
+        if not normalized:
+            continue
+        key = normalized.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(normalized)
+    return cleaned or None
 
 
 def _lexical_overlap(question_tokens: set[str], chunk_text: str) -> float:

@@ -106,6 +106,7 @@ class QdrantService:
         query_vector: list[float],
         top_k: int,
         version: str | None = None,
+        document_names: list[str] | None = None,
     ) -> list[SearchHit]:
         """Return top-k active hits with optional version filtering."""
         conditions = []
@@ -114,6 +115,13 @@ class QdrantService:
                 models.FieldCondition(
                     key="version",
                     match=models.MatchValue(value=version),
+                )
+            )
+        if document_names:
+            conditions.append(
+                models.FieldCondition(
+                    key="document_name",
+                    match=models.MatchAny(any=document_names),
                 )
             )
         query_filter = models.Filter(must=conditions) if conditions else None

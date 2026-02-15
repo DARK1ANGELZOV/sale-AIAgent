@@ -57,8 +57,8 @@ const defaultSettings = {
 };
 
 let settings = loadSettings();
-let sessions = loadSessions();
-let activeSessionId = sessions[0]?.id || createSession("New chat");
+let sessions = [];
+let activeSessionId = null;
 let chatSearchQuery = "";
 let authToken = localStorage.getItem(AUTH_TOKEN_KEY) || "";
 let currentUser = null;
@@ -74,11 +74,11 @@ async function initialize() {
   applyTheme();
   initializeMermaid();
   bindSettingsToUI();
-  renderChatList();
-  renderMessages();
   bindEvents();
   await restoreSession();
   await loadSharedChatFromUrl();
+  renderChatList();
+  renderMessages();
 }
 
 function uid() {
@@ -100,27 +100,67 @@ function saveSettings() {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
 }
 
-function loadSessions() {
+function getSessionsStorageKey(user) {
+  if (!user?.id) return null;
+  return `${SESSIONS_KEY}_u_${user.id}`;
+}
+
+function loadSessionsForUser(user) {
+  const storageKey = getSessionsStorageKey(user);
+  if (!storageKey) return [];
+
   try {
-    const raw = localStorage.getItem(SESSIONS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    const raw = localStorage.getItem(storageKey);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    }
+
+    // One-time migration from legacy shared key.
+    const legacyRaw = localStorage.getItem(SESSIONS_KEY);
+    if (!legacyRaw) return [];
+    const legacyParsed = JSON.parse(legacyRaw);
+    if (!Array.isArray(legacyParsed)) return [];
+    localStorage.setItem(storageKey, JSON.stringify(legacyParsed));
+    localStorage.removeItem(SESSIONS_KEY);
+    return legacyParsed;
   } catch (_) {
     return [];
   }
 }
 
 function saveSessions() {
-  localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+  const storageKey = getSessionsStorageKey(currentUser);
+  if (!storageKey) return;
+  localStorage.setItem(storageKey, JSON.stringify(sessions));
+}
+
+function hydrateSessionsForCurrentUser() {
+  sessions = loadSessionsForUser(currentUser);
+  if (sessions.length === 0) {
+    activeSessionId = createSession("New chat");
+    return;
+  }
+
+  if (!sessions.some((session) => session.id === activeSessionId)) {
+    activeSessionId = sessions[0].id;
+  }
+}
+
+function clearVisibleChats() {
+  sessions = [];
+  activeSessionId = null;
 }
 
 function createSession(title, options = {}) {
+  if (!currentUser && !options.readOnly) return null;
+
   const id = uid();
   sessions.unshift({
     id,
     title,
     messages: [],
+    scopedDocumentNames: [],
     createdAt: new Date().toISOString(),
     readOnly: Boolean(options.readOnly),
   });
@@ -189,6 +229,7 @@ function setAuthTab(tabName) {
 
 async function restoreSession() {
   if (!authToken) {
+    clearVisibleChats();
     openAuthModal();
     setComposerStatus("Войдите в аккаунт для работы с документами.");
     return;
@@ -202,6 +243,7 @@ async function restoreSession() {
       applyTheme();
       initializeMermaid();
     }
+    hydrateSessionsForCurrentUser();
     bindSettingsToUI();
     closeAuthModal();
     setComposerStatus(`Вы вошли как ${currentUser.display_name}.`);
@@ -216,7 +258,12 @@ function clearAuth() {
   authToken = "";
   currentUser = null;
   localStorage.removeItem(AUTH_TOKEN_KEY);
+  clearVisibleChats();
+  chatSearchQuery = "";
+  chatSearchNode.value = "";
   bindSettingsToUI();
+  renderChatList();
+  renderMessages();
 }
 
 async function apiRequest(path, options = {}, authRequired = false) {
@@ -246,6 +293,11 @@ async function apiRequest(path, options = {}, authRequired = false) {
 }
 
 function renderChatList() {
+  if (!currentUser) {
+    chatListNode.innerHTML = "";
+    return;
+  }
+
   const query = chatSearchQuery.trim().toLowerCase();
   const filtered = sessions.filter((session) => {
     if (!query) return true;
@@ -417,8 +469,10 @@ function renderMessages() {
   if (!session || session.messages.length === 0) {
     const row = document.createElement("div");
     row.className = "msg assistant";
-    row.innerHTML =
-      '<div class="bubble"><div class="bubble-text">Загрузите файл кнопкой "+" в поле ввода и задайте вопрос. На каждый запрос система показывает диаграмму (или market comparison).</div></div>';
+    const emptyText = currentUser
+      ? "Загрузите файл кнопкой \"+\" в поле ввода и задайте вопрос. На каждый запрос система показывает диаграмму (или market comparison)."
+      : "Войдите в аккаунт, чтобы увидеть свои чаты и продолжить работу.";
+    row.innerHTML = `<div class="bubble"><div class="bubble-text">${emptyText}</div></div>`;
     messagesNode.appendChild(row);
   } else {
     session.messages.forEach((message) => {
@@ -443,7 +497,7 @@ function renderMessages() {
     });
   }
 
-  setComposerReadOnly(Boolean(session?.readOnly));
+  setComposerReadOnly(Boolean(session?.readOnly) || !currentUser);
   messagesNode.scrollTop = messagesNode.scrollHeight;
   runMermaidRender();
   syncThinkingTimer();
@@ -455,7 +509,11 @@ function setComposerReadOnly(isReadOnly) {
   responseModeInput.disabled = isReadOnly;
   askForm.querySelector('button[type="submit"]').disabled = isReadOnly;
   if (isReadOnly) {
-    setComposerStatus("Это shared-чат в режиме чтения. Нажмите New chat для продолжения.");
+    if (!currentUser) {
+      setComposerStatus("Войдите в аккаунт, чтобы открыть чаты.");
+    } else {
+      setComposerStatus("Это shared-чат в режиме чтения. Нажмите New chat для продолжения.");
+    }
   }
 }
 
@@ -484,6 +542,18 @@ async function uploadDocument(file) {
     true
   );
 
+  const session = getActiveSession();
+  if (session) {
+    const scoped = Array.isArray(session.scopedDocumentNames)
+      ? session.scopedDocumentNames
+      : [];
+    if (!scoped.includes(result.document_name)) {
+      scoped.push(result.document_name);
+    }
+    session.scopedDocumentNames = scoped;
+    saveSessions();
+  }
+
   appendMessage(
     "assistant",
     `Файл загружен: ${result.document_name}\nИндексировано чанков: ${result.chunks_indexed}\nВерсия: ${result.version}`
@@ -502,6 +572,12 @@ async function sendQuestion(question) {
     mode: responseModeInput.value || settings.defaultMode || "standard",
   };
   if (settings.defaultVersion?.trim()) payload.version = settings.defaultVersion.trim();
+  const scopedDocs = Array.isArray(session?.scopedDocumentNames)
+    ? session.scopedDocumentNames.filter((name) => String(name || "").trim())
+    : [];
+  if (scopedDocs.length > 0) {
+    payload.document_names = scopedDocs;
+  }
 
   try {
     const result = await apiRequest(
@@ -566,6 +642,8 @@ async function shareCurrentChat() {
 }
 
 async function loadSharedChatFromUrl() {
+  if (!currentUser) return;
+
   const shareToken = new URLSearchParams(window.location.search).get("share");
   if (!shareToken) return;
 
@@ -580,6 +658,7 @@ async function loadSharedChatFromUrl() {
       meta: message.meta || "",
       ts: message.ts || payload.created_at || new Date().toISOString(),
     }));
+    session.scopedDocumentNames = [];
     session.readOnly = true;
     activeSessionId = newId;
     saveSessions();
@@ -618,6 +697,11 @@ function bindEvents() {
 
   askForm.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (!currentUser) {
+      openAuthModal();
+      setComposerStatus("Войдите в аккаунт, чтобы отправить вопрос.");
+      return;
+    }
     const session = getActiveSession();
     if (session?.readOnly) return;
 
@@ -632,7 +716,14 @@ function bindEvents() {
   });
 
   newChatBtn.addEventListener("click", () => {
-    activeSessionId = createSession("New chat");
+    if (!currentUser) {
+      openAuthModal();
+      setComposerStatus("Войдите в аккаунт для создания чата.");
+      return;
+    }
+    const newSessionId = createSession("New chat");
+    if (!newSessionId) return;
+    activeSessionId = newSessionId;
     renderChatList();
     renderMessages();
     setComposerStatus("Новый чат создан.");
@@ -727,8 +818,11 @@ function bindEvents() {
         initializeMermaid();
       }
       localStorage.setItem(AUTH_TOKEN_KEY, authToken);
+      hydrateSessionsForCurrentUser();
       closeAuthModal();
       bindSettingsToUI();
+      renderChatList();
+      renderMessages();
       setComposerStatus(`Вы вошли как ${currentUser.display_name}.`);
     } catch (error) {
       setAuthStatus(String(error));
@@ -757,8 +851,11 @@ function bindEvents() {
         initializeMermaid();
       }
       localStorage.setItem(AUTH_TOKEN_KEY, authToken);
+      hydrateSessionsForCurrentUser();
       closeAuthModal();
       bindSettingsToUI();
+      renderChatList();
+      renderMessages();
       setComposerStatus(`Аккаунт создан: ${currentUser.display_name}.`);
     } catch (error) {
       setAuthStatus(String(error));

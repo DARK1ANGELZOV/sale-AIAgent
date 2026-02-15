@@ -22,10 +22,12 @@ class FakeQdrantService:
         query_vector: list[float],
         top_k: int,
         version: str | None = None,
+        document_names: list[str] | None = None,
     ) -> list[SearchHit]:
         assert query_vector
         assert top_k == 3
         assert version == "v1"
+        assert document_names is None
         return [
             SearchHit(
                 id="1",
@@ -50,10 +52,12 @@ class FakeQdrantForRerank:
         query_vector: list[float],
         top_k: int,
         version: str | None = None,
+        document_names: list[str] | None = None,
     ) -> list[SearchHit]:
         assert query_vector
         assert top_k == 5
         assert version is None
+        assert document_names is None
         return [
             SearchHit(
                 id="semantic_only",
@@ -67,6 +71,33 @@ class FakeQdrantForRerank:
                 text="Recommended retail price for AstroSecure 5000 is 149900 RUB.",
                 metadata={"document_name": "doc_price", "version": "v1"},
             ),
+        ]
+
+
+class FakeQdrantWithDocumentScope:
+    """Ensures document_names filter is forwarded to vector search."""
+
+    def __init__(self) -> None:
+        self.last_document_names: list[str] | None = None
+
+    async def search(
+        self,
+        query_vector: list[float],
+        top_k: int,
+        version: str | None = None,
+        document_names: list[str] | None = None,
+    ) -> list[SearchHit]:
+        assert query_vector
+        assert top_k == 3
+        assert version is None
+        self.last_document_names = document_names
+        return [
+            SearchHit(
+                id="scoped",
+                score=0.81,
+                text="AstroSecure scoped text.",
+                metadata={"document_name": "scope.docx", "version": "v1"},
+            )
         ]
 
 
@@ -101,3 +132,25 @@ def test_retrieval_reranker_promotes_lexical_match() -> None:
     assert result.hits
     assert result.hits[0].id == "lexical_match"
     assert result.confidence >= result.hits[-1].score
+
+
+def test_retrieval_passes_document_scope_to_qdrant() -> None:
+    qdrant = FakeQdrantWithDocumentScope()
+    retriever = Retriever(
+        embedding_service=FakeEmbeddingService(),  # type: ignore[arg-type]
+        qdrant_service=qdrant,  # type: ignore[arg-type]
+        top_k=3,
+        similarity_threshold=0.2,
+    )
+
+    result = asyncio.run(
+        retriever.retrieve(
+            question="scope question",
+            version=None,
+            document_names=["scope.docx", "scope.docx", "  "],
+        )
+    )
+
+    assert result.hits
+    assert result.hits[0].id == "scoped"
+    assert qdrant.last_document_names == ["scope.docx"]

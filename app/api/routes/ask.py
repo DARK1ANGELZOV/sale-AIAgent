@@ -26,6 +26,7 @@ async def ask_question(
         query_type=payload.type,
         version=payload.version,
         mode=payload.mode,
+        document_names=payload.document_names,
     )
     logger.info(
         "ask_request",

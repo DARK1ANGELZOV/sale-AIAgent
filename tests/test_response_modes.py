@@ -11,7 +11,12 @@ from app.rag.retriever import RetrievalResult
 class FixedRetriever:
     """Returns fixed retrieval context."""
 
-    async def retrieve(self, question: str, version: str | None = None) -> RetrievalResult:
+    async def retrieve(
+        self,
+        question: str,
+        version: str | None = None,
+        document_names: list[str] | None = None,
+    ) -> RetrievalResult:
         return RetrievalResult(
             hits=[
                 SearchHit(
